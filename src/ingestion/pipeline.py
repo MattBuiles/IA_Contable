@@ -57,6 +57,138 @@ def bulk_insert_transaction_lines(rows: Iterable[dict]) -> None:
         conn.commit()
 
 
+def bulk_insert_journal_entries(rows: Iterable[dict]) -> None:
+    """Inserta asientos contables (journal entries)"""
+    with get_connection() as conn:
+        conn.executemany(
+            """
+            INSERT INTO journal_entries
+            (transaction_id, entry_date, account_code, debit, credit, description)
+            VALUES (:transaction_id, :entry_date, :account_code, 
+                    :debit, :credit, :description)
+            """,
+            rows,
+        )
+        conn.commit()
+
+
+def ensure_account_exists(account_code: str, account_name: str, account_type: str) -> None:
+    """Crea una cuenta si no existe"""
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO accounts (code, name, account_type, balance, is_active)
+            VALUES (?, ?, ?, 0, 1)
+            """,
+            (account_code, account_name, account_type)
+        )
+        conn.commit()
+
+
+def ensure_default_accounts() -> None:
+    """Asegura que existan las cuentas contables básicas necesarias"""
+    default_accounts = [
+        ("1105", "Caja", "Activo"),
+        ("4135", "Ingresos por ventas", "Ingreso"),
+        ("2408", "IVA", "Pasivo"),
+        ("6205", "Gastos de operación", "Gasto"),
+    ]
+    
+    for code, name, acc_type in default_accounts:
+        ensure_account_exists(code, name, acc_type)
+
+
+def generate_journal_entries_for_transaction(
+    transaction_id: int, 
+    transaction_date: str, 
+    transaction_type: str, 
+    amount: float, 
+    subtotal: float, 
+    tax_amount: float,
+    description: str
+) -> List[dict]:
+    """
+    Genera asientos contables (partida doble) para una transacción.
+    
+    Para venta (sales_invoice):
+        Débito: 1105 - Caja (activo)
+        Crédito: 4135 - Ingresos por ventas
+        Crédito: 2408 - IVA por pagar (si hay impuesto)
+    
+    Para compra (purchase_invoice):
+        Débito: 6205 - Gastos/Compras
+        Débito: 2408 - IVA descontable (si hay impuesto)
+        Crédito: 1105 - Caja (activo)
+    """
+    entries = []
+    
+    if transaction_type == "sales_invoice":
+        # Débito: Caja (activo aumenta)
+        entries.append({
+            "transaction_id": transaction_id,
+            "entry_date": transaction_date,
+            "account_code": "1105",
+            "debit": amount,
+            "credit": 0,
+            "description": f"Ingreso por venta - {description}"
+        })
+        
+        # Crédito: Ingresos
+        entries.append({
+            "transaction_id": transaction_id,
+            "entry_date": transaction_date,
+            "account_code": "4135",
+            "debit": 0,
+            "credit": subtotal,
+            "description": f"Venta - {description}"
+        })
+        
+        # Crédito: IVA por pagar (si hay impuesto)
+        if tax_amount > 0:
+            entries.append({
+                "transaction_id": transaction_id,
+                "entry_date": transaction_date,
+                "account_code": "2408",
+                "debit": 0,
+                "credit": tax_amount,
+                "description": f"IVA venta - {description}"
+            })
+    
+    elif transaction_type == "purchase_invoice":
+        # Débito: Gastos/Compras
+        entries.append({
+            "transaction_id": transaction_id,
+            "entry_date": transaction_date,
+            "account_code": "6205",
+            "debit": subtotal,
+            "credit": 0,
+            "description": f"Compra - {description}"
+        })
+        
+        # Débito: IVA descontable (si hay impuesto)
+        if tax_amount > 0:
+            entries.append({
+                "transaction_id": transaction_id,
+                "entry_date": transaction_date,
+                "account_code": "2408",
+                "debit": tax_amount,
+                "credit": 0,
+                "description": f"IVA compra - {description}"
+            })
+        
+        # Crédito: Caja (activo disminuye)
+        entries.append({
+            "transaction_id": transaction_id,
+            "entry_date": transaction_date,
+            "account_code": "1105",
+            "debit": 0,
+            "credit": amount,
+            "description": f"Pago compra - {description}"
+        })
+    
+    return entries
+
+
 def ingest_excel(filepath: Path) -> int:
     """Ingesta un Excel de facturas/transacciones con estructura robusta"""
     df: pd.DataFrame = read_excel(filepath)
@@ -169,17 +301,39 @@ def ingest_excel(filepath: Path) -> int:
     bulk_insert_transactions(transactions)
     
     # Obtener IDs de transacciones y actualizar líneas
+    journal_entries_to_insert = []
     with get_connection() as conn:
         tx_ids = conn.execute(
-            "SELECT id FROM transactions WHERE document_id = ? ORDER BY rowid",
+            "SELECT id, transaction_date, transaction_type, amount, description FROM transactions WHERE document_id = ? ORDER BY rowid",
             (doc_id,)
         ).fetchall()
         
         for i, tx_row in enumerate(transaction_lines):
             if i < len(tx_ids):
-                tx_row["transaction_id"] = tx_ids[i][0]
+                tx_id, tx_date, tx_type, tx_amount, tx_desc = tx_ids[i]
+                tx_row["transaction_id"] = tx_id
+                
+                # Generar asientos contables para esta transacción
+                entries = generate_journal_entries_for_transaction(
+                    transaction_id=tx_id,
+                    transaction_date=tx_date,
+                    transaction_type=tx_type,
+                    amount=tx_amount,
+                    subtotal=tx_row["subtotal"],
+                    tax_amount=tx_row["tax_amount"],
+                    description=tx_desc
+                )
+                journal_entries_to_insert.extend(entries)
         
         bulk_insert_transaction_lines(transaction_lines)
+        
+        # Asegurar que existan las cuentas contables necesarias
+        ensure_default_accounts()
+        
+        # Insertar asientos contables
+        if journal_entries_to_insert:
+            bulk_insert_journal_entries(journal_entries_to_insert)
+            print(f"✅ Generados {len(journal_entries_to_insert)} asientos contables")
     
     # Indexar vectores
     try:

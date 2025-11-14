@@ -11,32 +11,55 @@ class AccountingTasks:
     """Colección de tareas contables que el agente puede ejecutar."""
     
     @staticmethod
-    def balance_sheet(year: int = None) -> Dict[str, Any]:
+    def balance_sheet(start_date: str = None, end_date: str = None) -> Dict[str, Any]:
         """
         Genera el balance general.
         Retorna activos, pasivos y patrimonio.
+        
+        Args:
+            start_date: Fecha de inicio (YYYY-MM-DD), opcional
+            end_date: Fecha de fin (YYYY-MM-DD), opcional
         """
         with get_connection() as conn:
-            # Activos
-            activos = conn.execute("""
-                SELECT SUM(credit - debit) as total
-                FROM journal_entries
-                WHERE account_code LIKE '1%'
-            """).fetchone()[0] or 0
+            date_filter = ""
+            params_activos = []
+            params_pasivos = []
+            params_patrimonio = []
             
-            # Pasivos
-            pasivos = conn.execute("""
+            if start_date or end_date:
+                conditions = []
+                if start_date:
+                    conditions.append("date >= ?")
+                    params_activos.append(start_date)
+                    params_pasivos.append(start_date)
+                    params_patrimonio.append(start_date)
+                if end_date:
+                    conditions.append("date <= ?")
+                    params_activos.append(end_date)
+                    params_pasivos.append(end_date)
+                    params_patrimonio.append(end_date)
+                date_filter = " AND " + " AND ".join(conditions)
+            
+            # Activos
+            activos = conn.execute(f"""
                 SELECT SUM(debit - credit) as total
                 FROM journal_entries
-                WHERE account_code LIKE '2%'
-            """).fetchone()[0] or 0
+                WHERE account_code LIKE '1%'{date_filter}
+            """, params_activos).fetchone()[0] or 0
             
-            # Patrimonio
-            patrimonio = conn.execute("""
+            # Pasivos
+            pasivos = conn.execute(f"""
                 SELECT SUM(credit - debit) as total
                 FROM journal_entries
-                WHERE account_code LIKE '3%'
-            """).fetchone()[0] or 0
+                WHERE account_code LIKE '2%'{date_filter}
+            """, params_pasivos).fetchone()[0] or 0
+            
+            # Patrimonio
+            patrimonio = conn.execute(f"""
+                SELECT SUM(credit - debit) as total
+                FROM journal_entries
+                WHERE account_code LIKE '3%'{date_filter}
+            """, params_patrimonio).fetchone()[0] or 0
             
             return {
                 "activos": activos,
@@ -46,32 +69,55 @@ class AccountingTasks:
             }
     
     @staticmethod
-    def income_statement(year: int = None, month: int = None) -> Dict[str, Any]:
+    def income_statement(start_date: str = None, end_date: str = None) -> Dict[str, Any]:
         """
         Genera el estado de resultados.
         Retorna ingresos, gastos y utilidad neta.
+        
+        Args:
+            start_date: Fecha de inicio (YYYY-MM-DD), opcional
+            end_date: Fecha de fin (YYYY-MM-DD), opcional
         """
         with get_connection() as conn:
+            date_filter = ""
+            params_ingresos = []
+            params_costos = []
+            params_gastos = []
+            
+            if start_date or end_date:
+                conditions = []
+                if start_date:
+                    conditions.append("date >= ?")
+                    params_ingresos.append(start_date)
+                    params_costos.append(start_date)
+                    params_gastos.append(start_date)
+                if end_date:
+                    conditions.append("date <= ?")
+                    params_ingresos.append(end_date)
+                    params_costos.append(end_date)
+                    params_gastos.append(end_date)
+                date_filter = " AND " + " AND ".join(conditions)
+            
             # Ingresos (cuenta 4000)
-            ingresos = conn.execute("""
+            ingresos = conn.execute(f"""
                 SELECT SUM(credit - debit) as total
                 FROM journal_entries
-                WHERE account_code LIKE '4%'
-            """).fetchone()[0] or 0
+                WHERE account_code LIKE '4%'{date_filter}
+            """, params_ingresos).fetchone()[0] or 0
             
             # Costos (cuenta 5000)
-            costos = conn.execute("""
+            costos = conn.execute(f"""
                 SELECT SUM(debit - credit) as total
                 FROM journal_entries
-                WHERE account_code LIKE '5%'
-            """).fetchone()[0] or 0
+                WHERE account_code LIKE '5%'{date_filter}
+            """, params_costos).fetchone()[0] or 0
             
             # Gastos operacionales (cuenta 6000)
-            gastos = conn.execute("""
+            gastos = conn.execute(f"""
                 SELECT SUM(debit - credit) as total
                 FROM journal_entries
-                WHERE account_code LIKE '6%'
-            """).fetchone()[0] or 0
+                WHERE account_code LIKE '6%'{date_filter}
+            """, params_gastos).fetchone()[0] or 0
             
             utilidad_bruta = ingresos - costos
             utilidad_neta = utilidad_bruta - gastos
@@ -143,9 +189,13 @@ class AccountingTasks:
             }
     
     @staticmethod
-    def expenses_by_category() -> Dict[str, float]:
+    def expenses_by_category(start_date: str = None, end_date: str = None) -> Dict[str, float]:
         """
         Desglose de gastos por categoría.
+        
+        Args:
+            start_date: Fecha de inicio (YYYY-MM-DD), opcional
+            end_date: Fecha de fin (YYYY-MM-DD), opcional
         """
         with get_connection() as conn:
             query = """
@@ -154,28 +204,59 @@ class AccountingTasks:
                     SUM(credit) as total
                 FROM transaction_lines
                 WHERE credit > 0
+            """
+            
+            params = []
+            if start_date:
+                query += " AND date >= ?"
+                params.append(start_date)
+            if end_date:
+                query += " AND date <= ?"
+                params.append(end_date)
+            
+            query += """
                 GROUP BY category
                 ORDER BY total DESC
             """
             
-            results = conn.execute(query).fetchall()
+            results = conn.execute(query, params).fetchall()
             return {row[0]: row[1] for row in results}
     
     @staticmethod
-    def cash_flow() -> Dict[str, float]:
+    def cash_flow(start_date: str = None, end_date: str = None) -> Dict[str, float]:
         """
         Análisis de flujo de caja.
+        
+        Args:
+            start_date: Fecha de inicio (YYYY-MM-DD), opcional
+            end_date: Fecha de fin (YYYY-MM-DD), opcional
         """
         with get_connection() as conn:
-            ingresos = conn.execute("""
-                SELECT SUM(amount) FROM transactions 
-                WHERE transaction_type = 'sales_invoice'
-            """).fetchone()[0] or 0
+            date_filter = ""
+            params_ingresos = []
+            params_egresos = []
             
-            egresos = conn.execute("""
+            if start_date or end_date:
+                conditions = []
+                if start_date:
+                    conditions.append("date >= ?")
+                    params_ingresos.append(start_date)
+                    params_egresos.append(start_date)
+                if end_date:
+                    conditions.append("date <= ?")
+                    params_ingresos.append(end_date)
+                    params_egresos.append(end_date)
+                date_filter = " AND " + " AND ".join(conditions)
+            
+            ingresos = conn.execute(f"""
                 SELECT SUM(amount) FROM transactions 
-                WHERE transaction_type = 'purchase_invoice'
-            """).fetchone()[0] or 0
+                WHERE transaction_type = 'sales_invoice'{date_filter}
+            """, params_ingresos).fetchone()[0] or 0
+            
+            egresos = conn.execute(f"""
+                SELECT SUM(amount) FROM transactions 
+                WHERE transaction_type = 'purchase_invoice'{date_filter}
+            """, params_egresos).fetchone()[0] or 0
             
             return {
                 "ingresos_totales": ingresos,
