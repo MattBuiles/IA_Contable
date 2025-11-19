@@ -5,6 +5,10 @@ langchain-community>=0.1.0
 langchain-google-genai>=0.0.13
 langchain-experimental>=0.0.20
 
+# LangGraph for advanced agents
+langgraph>=0.2.0
+langgraph-checkpoint>=1.0.0
+
 # Vector Store & Embeddings
 faiss-cpu>=1.7.4
 

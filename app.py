@@ -2,7 +2,7 @@ import streamlit as st
 from pathlib import Path
 from src.db.database import init_db
 from src.ingestion.pipeline import ingest_excel, ingest_pdf
-from src.ai.agent import answer_question
+from src.ai.agent_v2 import answer_question_v2
 from src.config import DB_PATH
 from src.utils.logger import log_info, log_error
 from src.ai.accounting_tasks import AVAILABLE_TASKS
@@ -81,22 +81,54 @@ st.header("Haz tu Pregunta")
 st.markdown("Ejemplos: *¿Cuál es mi balance?* | *¿Total vendido este mes?* | *¿Análisis de gastos?*")
 
 # Sugerencias rápidas
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 with col1:
-    if st.button("Balance General"):
-        question = "Dame el balance general"
+    if st.button("📊 Balance General"):
+        question = "¿Cuál es mi balance general al 30 de noviembre de 2025? Muéstrame activos, pasivos y patrimonio con detalle."
     else:
         question = None
 
 with col2:
-    if st.button("Ventas"):
-        question = "¿Cuál fue el total vendido?"
+    if st.button("💰 Estado de Resultados"):
+        question = "¿Cuál fue mi utilidad neta en 2025? Muéstrame ingresos, costos y gastos."
     else:
         question = None if question is None else question
 
 with col3:
-    if st.button("Gastos"):
-        question = "Muéstrame los gastos por categoría"
+    if st.button("📈 Top 5 Clientes"):
+        question = "¿Quiénes son mis 5 mejores clientes por volumen de ventas? ¿Cuánto representa cada uno del total?"
+    else:
+        question = None if question is None else question
+
+with col4:
+    if st.button("🧾 Análisis de IVA"):
+        question = "¿Cuánto IVA he cobrado y cuánto he pagado en 2025? ¿Tengo saldo a favor o en contra?"
+    else:
+        question = None if question is None else question
+
+# Segunda fila de sugerencias
+col5, col6, col7, col8 = st.columns(4)
+with col5:
+    if st.button("📅 Tendencias Mensuales"):
+        question = "¿Cómo han evolucionado mis ventas mes a mes durante 2025? Muéstrame un análisis de tendencia."
+    else:
+        question = None if question is None else question
+
+with col6:
+    if st.button("⏰ Cartera Vencida"):
+        question = "¿Cuáles son las facturas de venta pendientes de pago y cuántos días de mora tienen?"
+    else:
+        question = None if question is None else question
+
+with col7:
+    if st.button("💧 Ratio de Liquidez"):
+        question = "¿Cuál es mi ratio de liquidez corriente y qué significa para mi empresa?"
+    else:
+        question = None if question is None else question
+
+with col8:
+    if st.button("🔢 Total Transacciones"):
+        question = "¿Cuántas transacciones hay en total en la base de datos?"
     else:
         question = None if question is None else question
 
@@ -125,7 +157,7 @@ if question:
         log_info(f"Pregunta recibida: {question}")
         # Procesar
         with st.spinner("Consultando IA..."):
-            answer = answer_question(question)
+            answer = answer_question_v2(question, thread_id=st.session_state.get("session_id", "default"))
         
         st.divider()
         
