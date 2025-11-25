@@ -2,14 +2,14 @@ import streamlit as st
 from pathlib import Path
 from src.db.database import init_db
 from src.ingestion.pipeline import ingest_excel, ingest_pdf
-from src.ai.agent_v2 import answer_question_v2
+from src.ai.agent_v3_main import answer_question_v3
 from src.config import DB_PATH
 from src.utils.logger import log_info, log_error
 from src.ai.accounting_tasks import AVAILABLE_TASKS
 
 # ===== Configuración de página =====
 st.set_page_config(
-    page_title="IA Contable",
+    page_title="IA Contable v3.0",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -68,10 +68,10 @@ with st.sidebar:
                 st.error(f"Error: {str(e)}")
 
 # ===== Área principal =====
-st.title("Asistente Contable Inteligente")
+st.title("Asistente Contable Inteligente v3.0")
 st.markdown("""
 Analiza tus facturas, extractos y documentos contables con IA.
-El agente detecta automáticamente qué análisis necesitas y los ejecuta.
+El agente v3 usa **LangGraph multi-agente** con planificación, ejecución, reflexión y auto-corrección.
 """)
 
 st.divider()
@@ -157,7 +157,7 @@ if question:
         log_info(f"Pregunta recibida: {question}")
         # Procesar
         with st.spinner("Consultando IA..."):
-            answer = answer_question_v2(question, thread_id=st.session_state.get("session_id", "default"))
+            answer = answer_question_v3(question, thread_id=st.session_state.get("session_id", "default"))
         
         st.divider()
         
@@ -181,4 +181,4 @@ if question:
         st.error(f"Error: {str(e)}")
         st.error(f"Detalles: {type(e).__name__}: {str(e)}")
 
-st.caption("Tus datos se almacenan localmente | Potenciado por LangChain + Gemini")
+st.caption("Tus datos se almacenan localmente | Potenciado por LangGraph + Gemini 2.0 Flash")
